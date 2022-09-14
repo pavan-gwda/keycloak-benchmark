@@ -7,7 +7,7 @@ import io.gatling.core.structure.ChainBuilder
 import io.gatling.http.Predef._
 import keycloak.Utils
 import keycloak.Utils.randomUUID
-import keycloak.scenario.KeycloakScenarioBuilder.{ADMIN_ENDPOINT, CODE_PATTERN, LOGIN_ENDPOINT, LOGOUT_ENDPOINT, TOKEN_ENDPOINT, UI_HEADERS, REALMS_ENDPOINT, MASTER_REALM_TOKEN_ENDPOINT, downCounterAboveZero}
+import keycloak.scenario.KeycloakScenarioBuilder.{ADMIN_ENDPOINT, CODE_PATTERN, INTROSPECT_ENDPOINT, LOGIN_ENDPOINT, LOGOUT_ENDPOINT, MASTER_REALM_TOKEN_ENDPOINT, REALMS_ENDPOINT, TOKEN_ENDPOINT, UI_HEADERS, downCounterAboveZero}
 import keycloak.scenario._private.AdminConsoleScenarioBuilder.DATE_FMT
 import org.keycloak.benchmark.Config
 
@@ -25,6 +25,7 @@ object KeycloakScenarioBuilder {
   val LOGIN_ENDPOINT = BASE_URL + "/protocol/openid-connect/auth"
   val LOGOUT_ENDPOINT = BASE_URL + "/protocol/openid-connect/logout"
   val TOKEN_ENDPOINT = BASE_URL + "/protocol/openid-connect/token"
+  val INTROSPECT_ENDPOINT = TOKEN_ENDPOINT + "/introspect"
   val MASTER_REALM_TOKEN_ENDPOINT = "${keycloakServer}/realms/master/protocol/openid-connect/token"
   val REALMS_ENDPOINT = "${keycloakServer}/admin/realms"
   val ADMIN_ENDPOINT = "${keycloakServer}/admin/realms/${realm}"
@@ -202,7 +203,7 @@ class KeycloakScenarioBuilder {
 
   def loginUsernamePassword(): KeycloakScenarioBuilder = {
     chainBuilder = chainBuilder
-      .exec(http("Browser posts correct credentials")
+      .exec(http("Browser posts correct credentials and get authz code")
         .post("${login-form-uri}")
         .headers(UI_HEADERS)
         .formParam("username", "${username}")
@@ -224,7 +225,7 @@ class KeycloakScenarioBuilder {
 
   def exchangeCode(): KeycloakScenarioBuilder = {
     chainBuilder = chainBuilder
-      .exec(http("Exchange Code")
+      .exec(http("Exchange Code ")
         .post(TOKEN_ENDPOINT)
         .headers(UI_HEADERS)
         .formParam("grant_type", "authorization_code")
@@ -232,7 +233,36 @@ class KeycloakScenarioBuilder {
         .formParam("client_secret", "${clientSecret}")
         .formParam("redirect_uri", "${redirectUri}")
         .formParam("code", "${code}")
-        .check(status.is(200)))
+        .check(status.is(200),
+          jsonPath("$.access_token").saveAs("accessToken"),
+          jsonPath("$.refresh_token").saveAs("refreshToken"),
+          jsonPath("$.expires_in").saveAs("expiresIn")
+        )
+      )
+      .exitHereIfFailed
+      .exec(http("Introspect token")
+      .post(INTROSPECT_ENDPOINT)
+      .headers(UI_HEADERS)
+      .formParam("token", "${accessToken}")
+      .formParam("client_id", "${clientId}")
+      .formParam("client_secret", "${clientSecret}")
+      .check(status.is(200)
+      ))
+      .exitHereIfFailed
+    this
+  }
+
+  def introspectToken() : KeycloakScenarioBuilder = {
+    chainBuilder = chainBuilder
+      .exec(http("Introspect token")
+        .post(INTROSPECT_ENDPOINT)
+        .headers(UI_HEADERS)
+        .formParam("token", "${accessToken}")
+        .formParam("client_id", "${clientId}")
+        .formParam("client_secret", "${clientSecret}")
+        .check(status.is(200)
+        )
+      )
       .exitHereIfFailed
     this
   }
